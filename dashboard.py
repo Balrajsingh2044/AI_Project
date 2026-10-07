@@ -4,6 +4,7 @@ from PIL import Image, ImageDraw
 from gtts import gTTS
 import os
 import warnings
+from robust_transcriber import robust_transcribe
 
 warnings.filterwarnings("ignore")
 
@@ -32,16 +33,21 @@ def run_full_assessment(video_file, audio_file):
     # 3. Mock Fair Wage Range (Pulling logic from your Day 3 Bayesian GNN)
     wage_range_text = "### 💰 **Fair Wage Range (95% Confidence)**\n# ₹3,706  —  ₹4,264\n*Expected Base: ₹3,985*"
     
-    # 4. Mock Vernacular Audio Feedback (Hindi)
-    feedback_text = "आपका काम बहुत अच्छा है। आपकी तकनीक स्कोर 87 प्रतिशत है। आपकी अनुमानित मजदूरी 3985 रुपये है।"
+    # 4. REAL Vernacular Audio Feedback using Robust Transcriber
+    if audio_file:
+        hindi_text, english_text, confidence = robust_transcribe(audio_file, language="hindi")
+        feedback_text = f"ट्रान्सक्रिप्शन: {hindi_text} | Confidence: {confidence}"
+    else:
+        feedback_text = "कोई ऑडियो नहीं मिला।"
+
     audio_filename = "feedback_hindi.mp3"
-    
+
     try:
         tts = gTTS(text=feedback_text, lang='hi')
         tts.save(audio_filename)
     except Exception as e:
         audio_filename = None # Fallback if internet fails
-        
+            
     return deepfake_status, score, heatmap, wage_range_text, audio_filename
 
 # ==========================================
