@@ -1,54 +1,70 @@
 import gradio as gr
-import time
-from PIL import Image, ImageDraw
-from gtts import gTTS
+import requests
 import os
 import warnings
 from robust_transcriber import robust_transcribe
+from gtts import gTTS
 
 warnings.filterwarnings("ignore")
 
-# ==========================================
-# MOCK BACKEND FUNCTION
-# (Simulates what Shreyansh's FastAPI will eventually return)
+# Shreyansh's Backend URL
+BACKEND_URL = "http://127.0.0.1:8000/api/assess"
 # ==========================================
 def run_full_assessment(video_file, audio_file):
     if video_file is None:
         raise gr.Error("Please upload a task video first!")
         
-    time.sleep(2) # Simulate AI processing time for dramatic effect
+    # ==========================================
+    # 1. CALL SHREYANSH'S BACKEND (Video Analysis & Wage)
+    # ==========================================
+    try:
+        with open(video_file, "rb") as f:
+            files = {"file": f}
+            data = {"task_type": "plumbing", "complexity": 3}
+            response = requests.post(BACKEND_URL, files=files, data=data, timeout=60)
+            response.raise_for_status()
+            result = response.json()
+            
+    except requests.exceptions.ConnectionError:
+        raise gr.Error("❌ Cannot connect to backend! Is Shreyansh's FastAPI server running on port 8000?")
+    except Exception as e:
+        raise gr.Error(f"❌ Backend processing failed: {str(e)}")
+
+    # ==========================================
+    # 2. EXTRACT BACKEND RESULTS (WITH DEFENSIVE CHECKS)
+    # ==========================================
+    status_emoji = "✅" if result.get('deepfake_status') == 'PASS' else "❌"
+    deepfake_status = f"### {status_emoji} **Integrity Check: {result.get('deepfake_status', 'UNKNOWN')}**"
     
-    # 1. Mock Deepfake Check
-    deepfake_status = "### ✅ **Integrity Check: PASSED**\n*No deepfake or looped video detected.*"
+    score = result.get('score', 0)
     
-    # 2. Mock Technique Score & Heatmap
-    score = 87.5
-    # Create a dummy Grad-CAM heatmap image (Red/Green/Yellow blocks)
-    heatmap = Image.new('RGB', (300, 200), color='black')
-    draw = ImageDraw.Draw(heatmap)
-    draw.rectangle([20, 20, 140, 180], fill='red')      # Poor technique area
-    draw.rectangle([150, 20, 280, 180], fill='green')    # Good technique area
-    draw.text((80, 10), "Grad-CAM Heatmap", fill="white")
+    # CRITICAL FIX: If heatmap is a URL, set it to None to prevent Gradio from crashing
+    heatmap_value = result.get('heatmap')
+    if heatmap_value and (heatmap_value.startswith('http://') or heatmap_value.startswith('https://')):
+        heatmap_value = None  # Don't try to download external URLs
     
-    # 3. Mock Fair Wage Range (Pulling logic from your Day 3 Bayesian GNN)
-    wage_range_text = "### 💰 **Fair Wage Range (95% Confidence)**\n# ₹3,706  —  ₹4,264\n*Expected Base: ₹3,985*"
-    
-    # 4. REAL Vernacular Audio Feedback using Robust Transcriber
+    wage_range_text = f"### 💰 **Fair Wage Range**\n# {result.get('wage_range_text', 'N/A')}"
+
+    # ==========================================
+    # 3. PROCESS AUDIO LOCALLY (Your Day 5 Robust System)
+    # ==========================================
+    audio_filename = None
     if audio_file:
         hindi_text, english_text, confidence = robust_transcribe(audio_file, language="hindi")
         feedback_text = f"ट्रान्सक्रिप्शन: {hindi_text} | Confidence: {confidence}"
+        
+        try:
+            audio_filename = "feedback_hindi.mp3"
+            tts = gTTS(text=feedback_text, lang='hi')
+            tts.save(audio_filename)
+        except Exception as e:
+            print(f"TTS Generation Error: {e}")
+            audio_filename = None
     else:
         feedback_text = "कोई ऑडियो नहीं मिला।"
 
-    audio_filename = "feedback_hindi.mp3"
-
-    try:
-        tts = gTTS(text=feedback_text, lang='hi')
-        tts.save(audio_filename)
-    except Exception as e:
-        audio_filename = None # Fallback if internet fails
-            
-    return deepfake_status, score, heatmap, wage_range_text, audio_filename
+    # Return exactly 5 variables to match the Gradio outputs
+    return deepfake_status, score, heatmap_value, wage_range_text, audio_filename
 
 # ==========================================
 # BUILD THE GRADIO INTERFACE (gr.Blocks)
